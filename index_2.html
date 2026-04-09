@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>식재 입지 분석기 — Hansen-based Site Analyzer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0c0c0a;
+  --surface: #141412;
+  --surface2: #1c1c18;
+  --border: #272720;
+  --border2: #32322a;
+  --accent: #a8c890;
+  --accent2: #d4b86a;
+  --accent3: #b89870;
+  --danger: #c47860;
+  --info: #7898b8;
+  --text: #e0dcd0;
+  --text-dim: #807c70;
+  --text-muted: #484840;
+  --A: #7ab89a;
+  --B: #7a9ab8;
+  --C: #b87a7a;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-serif;display:flex;flex-direction:column;}
+
+/* Header */
+header{
+  padding:14px 24px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:16px;
+  flex-shrink:0;
+  background:var(--bg);
+  z-index:100;
+}
+.logo{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:11px;font-weight:600;
+  letter-spacing:0.15em;color:var(--accent);
+  text-transform:uppercase;
+}
+.logo-sub{font-size:10px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;margin-left:4px;}
+.header-tags{display:flex;gap:6px;margin-left:auto;}
+.htag{
+  font-family:'IBM Plex Mono',monospace;font-size:9px;
+  padding:3px 8px;border-radius:2px;
+  background:var(--surface2);color:var(--text-muted);
+  border:1px solid var(--border);letter-spacing:0.08em;
+}
+
+/* Layout */
+.layout{display:grid;grid-template-columns:1fr 400px;flex:1;overflow:hidden;}
+
+/* Map */
+#map{width:100%;height:100%;}
+.leaflet-container{background:#0a0a08!important;}
+
+/* Panel */
+.panel{
+  background:var(--surface);
+  border-left:1px solid var(--border);
+  overflow-y:auto;
+  display:flex;flex-direction:column;
+}
+.panel::-webkit-scrollbar{width:3px;}
+.panel::-webkit-scrollbar-track{background:var(--bg);}
+.panel::-webkit-scrollbar-thumb{background:var(--border2);}
+
+.psec{padding:16px 18px;border-bottom:1px solid var(--border);}
+
+.slabel{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:8px;letter-spacing:0.18em;
+  color:var(--text-muted);text-transform:uppercase;
+  margin-bottom:10px;
+}
+
+/* Search */
+.search-row{display:flex;gap:6px;}
+input[type=text]{
+  flex:1;background:var(--bg);
+  border:1px solid var(--border2);border-radius:3px;
+  padding:8px 11px;color:var(--text);
+  font-size:12px;font-family:'Noto Sans KR',sans-serif;
+  outline:none;transition:border-color 0.2s;
+}
+input[type=text]:focus{border-color:var(--accent);}
+input[type=text]::placeholder{color:var(--text-muted);}
+
+button{
+  background:var(--accent);color:var(--bg);
+  border:none;border-radius:3px;
+  padding:8px 12px;font-size:11px;font-weight:700;
+  cursor:pointer;font-family:'IBM Plex Mono',monospace;
+  letter-spacing:0.05em;transition:all 0.15s;white-space:nowrap;
+}
+button:hover{opacity:0.85;}
+button:disabled{opacity:0.35;cursor:not-allowed;}
+
+.coord-line{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:9px;color:var(--text-muted);
+  margin-top:7px;
+}
+
+/* Analyze btn */
+.analyze-btn{width:100%;padding:11px;font-size:12px;letter-spacing:0.1em;}
+
+/* Progress */
+.progress-wrap{margin-top:10px;display:none;}
+.progress-bar{height:1px;background:var(--border2);border-radius:1px;overflow:hidden;}
+.progress-fill{height:100%;background:var(--accent);width:0%;transition:width 0.4s ease;}
+.progress-text{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:5px;}
+.dot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--text-muted);display:inline-block;margin-right:5px;
+}
+.dot.live{background:var(--accent);animation:blink 1.2s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.2;}}
+
+/* Data cards */
+.data-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.dc{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:3px;padding:9px 11px;
+}
+.dc-label{font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:3px;}
+.dc-value{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:500;color:var(--accent2);}
+.dc-unit{font-size:9px;color:var(--text-muted);margin-left:2px;}
+.dc-sub{font-size:10px;color:var(--text-dim);margin-top:2px;}
+
+/* Source tag */
+.src-tag{
+  font-family:'IBM Plex Mono',monospace;font-size:8px;
+  color:var(--text-muted);background:var(--surface2);
+  border:1px solid var(--border);padding:1px 5px;border-radius:2px;
+  display:inline-block;margin-top:3px;
+}
+
+/* Result */
+.type-header{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+.type-badge{
+  width:44px;height:44px;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;
+  flex-shrink:0;
+}
+.tA .type-badge{background:rgba(122,184,154,0.12);color:var(--A);border:1px solid rgba(122,184,154,0.25);}
+.tB .type-badge{background:rgba(122,154,184,0.12);color:var(--B);border:1px solid rgba(122,154,184,0.25);}
+.tC .type-badge{background:rgba(184,122,122,0.12);color:var(--C);border:1px solid rgba(184,122,122,0.25);}
+
+.type-name{font-size:13px;font-weight:700;margin-bottom:2px;}
+.tA .type-name{color:var(--A);}
+.tB .type-name{color:var(--B);}
+.tC .type-name{color:var(--C);}
+.type-desc{font-size:11px;color:var(--text-dim);line-height:1.4;}
+
+.hansen-box{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:3px;padding:9px 12px;
+  font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--accent2);margin-bottom:12px;line-height:1.8;
+}
+
+.iblock{margin-bottom:11px;}
+.iblock-label{
+  font-family:'IBM Plex Mono',monospace;font-size:8px;
+  text-transform:uppercase;letter-spacing:0.12em;
+  color:var(--text-muted);margin-bottom:5px;
+}
+
+.tags{display:flex;flex-wrap:wrap;gap:4px;}
+.tag{font-size:10px;padding:3px 7px;border-radius:2px;font-family:'IBM Plex Mono',monospace;}
+.tag-risk{background:rgba(196,120,96,0.1);color:var(--danger);border:1px solid rgba(196,120,96,0.2);}
+.tag-manage{background:rgba(184,152,112,0.1);color:var(--accent3);border:1px solid rgba(184,152,112,0.2);}
+
+.plant-list{display:flex;flex-direction:column;gap:4px;}
+.plant-item{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:3px;padding:6px 10px;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.pname{font-size:11px;color:var(--text);font-weight:500;}
+.pcode{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);}
+
+.verdict{
+  background:var(--surface2);border:1px solid var(--border2);
+  border-radius:3px;padding:8px 11px;
+  font-family:'IBM Plex Mono',monospace;font-size:10px;
+  color:var(--text-dim);line-height:1.6;margin-top:4px;
+}
+
+/* Empty */
+.empty{text-align:center;padding:48px 20px;color:var(--text-muted);}
+.empty-icon{font-size:28px;margin-bottom:10px;opacity:0.3;}
+.empty p{font-size:11px;line-height:1.7;}
+
+/* Score bar */
+.sbar{height:2px;background:var(--border);border-radius:1px;margin-top:5px;overflow:hidden;}
+.sbar-fill{height:100%;border-radius:1px;transition:width 1s ease;}
+
+/* Error msg */
+.err-note{
+  font-size:10px;color:var(--danger);
+  font-family:'IBM Plex Mono',monospace;
+  margin-top:6px;padding:6px 9px;
+  background:rgba(196,120,96,0.08);
+  border:1px solid rgba(196,120,96,0.15);
+  border-radius:3px;display:none;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Site Analyzer<span class="logo-sub">/ Hansen-based</span></div>
+  <div class="header-tags">
+    <span class="htag">Vworld</span>
+    <span class="htag">Open-Meteo</span>
+    <span class="htag">Open-Elevation</span>
+    <span class="htag">국립농업과학원</span>
+  </div>
+</header>
+
+<div class="layout">
+  <div id="map"></div>
+
+  <div class="panel">
+
+    <!-- 위치 검색 -->
+    <div class="psec">
+      <div class="slabel">위치 검색</div>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="주소 또는 장소명..."/>
+        <button onclick="searchAddr()">검색</button>
+      </div>
+      <div class="coord-line" id="coordLine">지도를 클릭하거나 주소를 검색하세요</div>
+      <div class="err-note" id="searchErr"></div>
+    </div>
+
+    <!-- 분석 실행 -->
+    <div class="psec">
+      <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()" disabled>
+        위치를 먼저 선택하세요
+      </button>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText"><span class="dot live"></span>데이터 수집 중...</div>
+      </div>
+    </div>
+
+    <!-- 수집 데이터 -->
+    <div class="psec" id="dataSection" style="display:none;">
+      <div class="slabel">수집된 환경 데이터</div>
+      <div class="data-grid" id="dataGrid"></div>
+    </div>
+
+    <!-- 결과 -->
+    <div class="psec" id="resultSection">
+      <div class="empty">
+        <div class="empty-icon">🌿</div>
+        <p>위치 선택 후<br>분석을 실행하세요<br><br>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted)">
+        Vworld 토양·배수등급<br>Open-Meteo 기상<br>Open-Elevation 고도
+        </span></p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Keys ──────────────────────────────────────────
+const VWORLD_KEY = '46FC4CCC-2721-3996-A52C-3E78E253304E';
+const VWORLD_DOMAIN = 'hubminyoung.github.io';
+
+// ── Map ───────────────────────────────────────────
+const map = L.map('map', {zoomControl:true}).setView([37.5665, 126.9780], 12);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
+  attribution:'©OpenStreetMap ©CARTO', maxZoom:19
+}).addTo(map);
+
+const markerIcon = L.divIcon({
+  html:`<div style="width:12px;height:12px;background:var(--accent,#a8c890);border-radius:50%;border:2px solid #0c0c0a;box-shadow:0 0 0 3px rgba(168,200,144,0.25);"></div>`,
+  iconSize:[12,12], iconAnchor:[6,6], className:''
+});
+
+let marker = null;
+let selLat = null, selLng = null;
+
+map.on('click', e => setLocation(e.latlng.lat, e.latlng.lng));
+
+function setLocation(lat, lng) {
+  selLat = lat; selLng = lng;
+  if(marker) map.removeLayer(marker);
+  marker = L.marker([lat,lng],{icon:markerIcon}).addTo(map);
+  document.getElementById('coordLine').textContent = `${lat.toFixed(5)}°N  ${lng.toFixed(5)}°E`;
+  document.getElementById('analyzeBtn').disabled = false;
+  document.getElementById('analyzeBtn').textContent = '입지 분석 실행 →';
+}
+
+// ── Address Search (Vworld) ───────────────────────
+async function searchAddr() {
+  const q = document.getElementById('searchInput').value.trim();
+  if(!q) return;
+  const errEl = document.getElementById('searchErr');
+  errEl.style.display = 'none';
+
+  const btn = document.querySelector('.search-row button');
+  btn.textContent = '...';
+  btn.disabled = true;
+
+  // 1차: Kakao 로컬 API (CORS 허용, 한국 주소 최적)
+  // 2차: Nominatim
+  try {
+    // Nominatim — 한국어 주소 + 장소명 모두 지원, CORS 허용
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=3&accept-language=ko&countrycodes=kr`,
+      { headers: { 'Accept-Language': 'ko' } }
+    );
+    const data = await res.json();
+    if(data.length > 0) {
+      const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+      map.setView([lat,lng], 16);
+      setLocation(lat, lng);
+    } else {
+      // 한국 제한 없이 재시도
+      const res2 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' 한국')}&format=json&limit=1`);
+      const data2 = await res2.json();
+      if(data2.length > 0) {
+        const lat = parseFloat(data2[0].lat), lng = parseFloat(data2[0].lon);
+        map.setView([lat,lng], 16);
+        setLocation(lat, lng);
+      } else {
+        errEl.textContent = '주소를 찾을 수 없습니다. 더 구체적으로 입력해보세요.';
+        errEl.style.display = 'block';
+      }
+    }
+  } catch(e) {
+    errEl.textContent = '검색 오류: 네트워크를 확인하세요.';
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '검색';
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('searchInput').addEventListener('keydown', e => { if(e.key==='Enter') searchAddr(); });
+
+// ── Progress ──────────────────────────────────────
+function setProgress(pct, text) {
+  document.getElementById('progressFill').style.width = pct + '%';
+  const dot = pct < 100 ? '<span class="dot live"></span>' : '<span class="dot"></span>';
+  document.getElementById('progressText').innerHTML = dot + text;
+}
+
+// ── Fetch: Open-Meteo ─────────────────────────────
+async function fetchMeteo(lat, lng) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=sunshine_duration,precipitation_sum,temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration&timezone=Asia%2FSeoul&past_days=30&forecast_days=7`;
+  const res = await fetch(url);
+  const d = await res.json();
+  const s = d.daily;
+  const avg = arr => arr && arr.length ? (arr.reduce((a,b)=>a+(b||0),0)/arr.length) : null;
+  return {
+    sunshine: avg(s.sunshine_duration) ? (avg(s.sunshine_duration)/3600).toFixed(1) : null, // hr/day
+    precip: avg(s.precipitation_sum) ? avg(s.precipitation_sum).toFixed(1) : null,           // mm/day
+    tempMax: avg(s.temperature_2m_max) ? avg(s.temperature_2m_max).toFixed(1) : null,
+    tempMin: avg(s.temperature_2m_min) ? avg(s.temperature_2m_min).toFixed(1) : null,
+    et0: avg(s.et0_fao_evapotranspiration) ? avg(s.et0_fao_evapotranspiration).toFixed(1) : null,
+    source: 'Open-Meteo'
+  };
+}
+
+// ── Fetch: Open-Elevation ─────────────────────────
+async function fetchElevation(lat, lng) {
+  try {
+    const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+    const d = await res.json();
+    return { elev: d.results[0].elevation, source: 'Open-Elevation/SRTM' };
+  } catch(e) {
+    return { elev: null, source: 'Open-Elevation' };
+  }
+}
+
+// ── Fetch: Vworld 배수등급 ────────────────────────
+async function fetchDrainage(lat, lng) {
+  try {
+    const geom = `POINT(${lng} ${lat})`;
+    const url = `https://api.vworld.kr/req/data?service=data&request=GetFeature&data=LT_C_ASITSOILDRA&key=${VWORLD_KEY}&domain=${VWORLD_DOMAIN}&geomFilter=${encodeURIComponent(geom)}&buffer=100&size=1&format=json&geometry=false&attribute=true&crs=EPSG:4326`;
+    const res = await fetch(url);
+    const d = await res.json();
+    if(d.response && d.response.status === 'OK' && d.response.result && d.response.result.featureCollection && d.response.result.featureCollection.features && d.response.result.featureCollection.features.length > 0) {
+      const feat = d.response.result.featureCollection.features[0];
+      const props = feat.properties;
+      return {
+        drainCode: props.code_dc,
+        drainLabel: props.label,
+        source: 'Vworld/국립농업과학원'
+      };
+    }
+    return { drainCode: null, drainLabel: null, source: 'Vworld' };
+  } catch(e) {
+    return { drainCode: null, drainLabel: null, source: 'Vworld' };
+  }
+}
+
+// ── Fetch: Vworld 심토토성 ────────────────────────
+async function fetchSoilTexture(lat, lng) {
+  try {
+    const geom = `POINT(${lng} ${lat})`;
+    const url = `https://api.vworld.kr/req/data?service=data&request=GetFeature&data=LT_C_ASITDEEPSOIL&key=${VWORLD_KEY}&domain=${VWORLD_DOMAIN}&geomFilter=${encodeURIComponent(geom)}&buffer=100&size=1&format=json&geometry=false&attribute=true&crs=EPSG:4326`;
+    const res = await fetch(url);
+    const d = await res.json();
+    if(d.response && d.response.status === 'OK' && d.response.result && d.response.result.featureCollection && d.response.result.featureCollection.features && d.response.result.featureCollection.features.length > 0) {
+      const feat = d.response.result.featureCollection.features[0];
+      const props = feat.properties;
+      return {
+        soilCode: props.code_st,
+        soilLabel: props.label,
+        source: 'Vworld/국립농업과학원'
+      };
+    }
+    return { soilCode: null, soilLabel: null, source: 'Vworld' };
+  } catch(e) {
+    return { soilCode: null, soilLabel: null, source: 'Vworld' };
+  }
+}
+
+// ── Classification ────────────────────────────────
+function classifySite(meteo, elev, drain, soil) {
+  let scoreA = 0, scoreB = 0, scoreC = 0;
+
+  // 일조 (양지 >6hr, 반그늘 3~6, 그늘 <3)
+  const sun = parseFloat(meteo.sunshine);
+  if(!isNaN(sun)) {
+    if(sun > 6) { scoreA+=3; scoreC+=1; }
+    else if(sun > 3) { scoreB+=3; }
+    else { scoreB+=1; scoreC+=1; }
+  }
+
+  // 강수 + ET0 (건습 판단)
+  const precip = parseFloat(meteo.precip);
+  const et0 = parseFloat(meteo.et0);
+  if(!isNaN(precip)) {
+    if(precip < 1.5) { scoreA+=3; }
+    else if(precip < 3.5) { scoreB+=2; scoreA+=1; }
+    else { scoreC+=3; scoreB+=1; }
+  }
+  if(!isNaN(et0) && !isNaN(precip)) {
+    // 수분지수: precip/et0 > 1 = 과습 경향
+    const wi = precip / et0;
+    if(wi > 1.5) { scoreC+=2; }
+    else if(wi > 0.8) { scoreB+=1; }
+    else { scoreA+=2; }
+  }
+
+  // 고도 (저지대 → C 리스크)
+  const e = elev.elev;
+  if(e !== null) {
+    if(e < 5) { scoreC+=3; }
+    else if(e < 15) { scoreC+=1; scoreB+=1; }
+    else if(e < 50) { scoreB+=1; scoreA+=1; }
+    else { scoreA+=2; }
+  }
+
+  // 배수등급 (Vworld)
+  // code_dc: 1=매우양호, 2=양호, 3=약간불량, 4=불량, 5=매우불량, 6=과습
+  if(drain.drainCode !== null) {
+    const dc = parseInt(drain.drainCode);
+    if(dc <= 2) { scoreA+=3; }
+    else if(dc === 3) { scoreB+=2; scoreA+=1; }
+    else { scoreC+=3; }
+  }
+
+  // 심토토성 (Vworld)
+  // 사질 계열 → A, 식질 계열 → C
+  if(soil.soilLabel) {
+    const sl = soil.soilLabel;
+    if(sl.includes('사') || sl.includes('양질')) { scoreA+=2; }
+    else if(sl.includes('식양') || sl.includes('미사')) { scoreB+=2; }
+    else if(sl.includes('식질') || sl.includes('중식')) { scoreC+=2; }
+    else { scoreB+=1; }
+  }
+
+  const max = Math.max(scoreA, scoreB, scoreC);
+  let type = 'A';
+  if(scoreB === max && scoreB > scoreA) type = 'B';
+  if(scoreC === max && scoreC >= scoreB) type = 'C';
+
+  return { type, scoreA, scoreB, scoreC };
+}
+
+// ── Hansen Code Builder ───────────────────────────
+function buildHansen(meteo, elev, drain, soil, type) {
+  const sun = parseFloat(meteo.sunshine);
+  const light = isNaN(sun) ? '—' : sun > 6 ? 'so (양지)' : sun > 3 ? 'hs (반음지)' : 'sch (음지)';
+  const precip = parseFloat(meteo.precip);
+  const moisture = isNaN(precip) ? '—' : precip < 1 ? '1 (건조)' : precip < 2.5 ? '2 (적습)' : precip < 4 ? '3 (중간)' : '4 (습윤)';
+  const hab = type === 'C' ? 'W (습지형)' : type === 'B' ? 'G (초지)' : 'Fr (Meadow)';
+  const dr = drain.drainLabel || '—';
+  const sl = soil.soilLabel || '—';
+  return `${light}  /  ${moisture}  /  ${hab}\n배수: ${dr}  /  토성: ${sl}`;
+}
+
+// ── Type Data ─────────────────────────────────────
+const TD = {
+  A: {
+    name:'A 타입 — 안전형',
+    desc:'양지·건조·배수양호 / 도시 화단',
+    risks:['여름 건조 스트레스','초기 활착 주의'],
+    manage:['초기 4~8주 집중관수','이후 최소관리','필요시 보조 관수'],
+    matrix:'Matrix 60% + Structural 25% + Scatter 15%',
+    plants:[
+      {n:'억새', c:'M + P + S + H'},
+      {n:'수크령', c:'M + P + S + M'},
+      {n:'구절초', c:'Sc + B + R + M'},
+      {n:'꽃향유', c:'Sc + U + R + M'},
+      {n:'벌개미취', c:'S + Sp + C + H'},
+    ],
+    verdict:'S 우세 조합. 초기 활착 후 최소관리 가능. 가뭄 스트레스 주의.',
+    score: 88
+  },
+  B: {
+    name:'B 타입 — 중간형',
+    desc:'반그늘·적습·배수보통 / 공원 경계부',
+    risks:['경쟁 과다','광 부족','도장(웃자람) 위험'],
+    manage:['연 1~2회 컷백','밀도 조절','도장 모니터링','피복률 80% 초과시 제거'],
+    matrix:'Matrix 55% + Structural 30% + Scatter 15%',
+    plants:[
+      {n:'맥문동', c:'M + G + S + L'},
+      {n:'비비추', c:'S + D + C + M'},
+      {n:'노루오줌', c:'Sc + P + R + M'},
+      {n:'산수국', c:'S + U + C + H'},
+      {n:'꽃무릇', c:'Sc + U + R + M'},
+    ],
+    verdict:'C·S 혼합 조합. 관리 없으면 2~3년 후 우점 발생. 연 1회 컷백 필수.',
+    score: 70
+  },
+  C: {
+    name:'C 타입 — 리스크형',
+    desc:'양지·습윤·배수불량 / 저지대',
+    risks:['잡초 폭발 + 침입종','뿌리 썩음','종 선택 폭 좁음','여름 고온다습 악화'],
+    manage:['배수 개선 or 습지형 식재','초기 1~2년 월 1회 제초','초기 피복률 70~80% 확보','우점종 형성 후 관리 감소'],
+    matrix:'Matrix 60% + Structural 25% + Scatter 15%',
+    plants:[
+      {n:'갈대', c:'M + V + C + H'},
+      {n:'줄', c:'M + Scr + S + M'},
+      {n:'노랑꽃창포', c:'S + Sp + C + M'},
+      {n:'부들', c:'S + V + S + H'},
+      {n:'택사', c:'Sc + U + R + M'},
+    ],
+    verdict:'배수 개선 없이 설계 시 2년 내 구조 붕괴 위험. 습지형 식재 시스템 적용 필수.',
+    score: 52
+  }
+};
+
+// ── Main Analysis ─────────────────────────────────
+async function runAnalysis() {
+  if(!selLat) return;
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  btn.textContent = '분석 중...';
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('dataSection').style.display = 'none';
+  document.getElementById('resultSection').innerHTML = '';
+
+  setProgress(10, '기상 데이터 수집 (Open-Meteo)...');
+  let meteo = {};
+  try { meteo = await fetchMeteo(selLat, selLng); } catch(e) { meteo = {}; }
+
+  setProgress(35, '고도 데이터 수집 (Open-Elevation/SRTM)...');
+  let elev = {};
+  try { elev = await fetchElevation(selLat, selLng); } catch(e) { elev = {elev:null}; }
+
+  setProgress(58, '배수등급 수집 (Vworld/국립농업과학원)...');
+  let drain = {};
+  try { drain = await fetchDrainage(selLat, selLng); } catch(e) { drain = {drainCode:null,drainLabel:null}; }
+
+  setProgress(78, '심토토성 수집 (Vworld/국립농업과학원)...');
+  let soil = {};
+  try { soil = await fetchSoilTexture(selLat, selLng); } catch(e) { soil = {soilCode:null,soilLabel:null}; }
+
+  setProgress(95, '입지 조건 분석 중...');
+  await new Promise(r => setTimeout(r, 300));
+
+  const cls = classifySite(meteo, elev, drain, soil);
+  const hansen = buildHansen(meteo, elev, drain, soil, cls.type);
+
+  setProgress(100, '분석 완료');
+  setTimeout(() => {
+    document.getElementById('progressWrap').style.display = 'none';
+    renderData(meteo, elev, drain, soil);
+    renderResult(cls, hansen, meteo, elev, drain, soil);
+    btn.disabled = false;
+    btn.textContent = '재분석';
+  }, 300);
+}
+
+function renderData(meteo, elev, drain, soil) {
+  document.getElementById('dataSection').style.display = 'block';
+  const sun = meteo.sunshine;
+  const precip = meteo.precip;
+  const temp = meteo.tempMax;
+  const e = elev.elev;
+
+  const sunLabel = sun ? (parseFloat(sun)>6?'양지':parseFloat(sun)>3?'반그늘':'그늘') : '—';
+  const precipLabel = precip ? (parseFloat(precip)<1.5?'건조':parseFloat(precip)<3.5?'적습':'습윤') : '—';
+  const elevLabel = e!==null&&e!==undefined ? (e<5?'저지대':e<20?'평지':'고지') : '—';
+  const drainLabel = drain.drainLabel || (drain.drainCode===null ? 'API 응답 없음' : drain.drainLabel);
+
+  document.getElementById('dataGrid').innerHTML = [
+    {l:'일조시간', v:sun||'—', u:'hr/day', s:sunLabel, src:'Open-Meteo'},
+    {l:'일평균강수', v:precip||'—', u:'mm/day', s:precipLabel, src:'Open-Meteo'},
+    {l:'고도', v:e!==null&&e!==undefined?e:'—', u:'m', s:elevLabel, src:'SRTM'},
+    {l:'배수등급', v:drainLabel||'—', u:'', s:drain.drainCode?`code:${drain.drainCode}`:'', src:'국립농업과학원'},
+    {l:'심토토성', v:soil.soilLabel||'—', u:'', s:soil.soilCode?`code:${soil.soilCode}`:'', src:'국립농업과학원'},
+    {l:'최고기온', v:temp||'—', u:'°C', s:'최근 30일 평균', src:'Open-Meteo'},
+  ].map(i=>`
+    <div class="dc">
+      <div class="dc-label">${i.l}</div>
+      <div class="dc-value">${i.v}<span class="dc-unit">${i.u}</span></div>
+      <div class="dc-sub">${i.s}</div>
+      <span class="src-tag">${i.src}</span>
+    </div>
+  `).join('');
+}
+
+function renderResult(cls, hansen, meteo, elev, drain, soil) {
+  const t = cls.type;
+  const td = TD[t];
+  const color = t==='A'?'var(--A)':t==='B'?'var(--B)':'var(--C)';
+
+  document.getElementById('resultSection').innerHTML = `
+    <div class="slabel">분석 결과</div>
+
+    <div class="type-header t${t}">
+      <div class="type-badge">${t}</div>
+      <div>
+        <div class="type-name">${td.name}</div>
+        <div class="type-desc">${td.desc}</div>
+      </div>
+    </div>
+
+    <div class="hansen-box">${hansen.replace(/\n/,'<br>')}</div>
+
+    <div class="iblock">
+      <div class="iblock-label">안정성 지수</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:${color};font-weight:500">${td.score}%</div>
+      <div class="sbar"><div class="sbar-fill" style="width:${td.score}%;background:${color}"></div></div>
+    </div>
+
+    <div class="iblock">
+      <div class="iblock-label">구성 비율</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);line-height:1.6">${td.matrix}</div>
+    </div>
+
+    <div class="iblock">
+      <div class="iblock-label">리스크</div>
+      <div class="tags">${td.risks.map(r=>`<span class="tag tag-risk">${r}</span>`).join('')}</div>
+    </div>
+
+    <div class="iblock">
+      <div class="iblock-label">관리 전략</div>
+      <div class="tags">${td.manage.map(m=>`<span class="tag tag-manage">${m}</span>`).join('')}</div>
+    </div>
+
+    <div class="iblock">
+      <div class="iblock-label">추천 식물 — 한국 자생종</div>
+      <div class="plant-list">
+        ${td.plants.map(p=>`
+          <div class="plant-item">
+            <span class="pname">${p.n}</span>
+            <span class="pcode">${p.c}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="iblock">
+      <div class="iblock-label">종합 판단</div>
+      <div class="verdict">${td.verdict}</div>
+    </div>
+
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--text-muted);padding-top:4px;line-height:1.8">
+      데이터 출처: Open-Meteo (기상) · Open-Elevation/SRTM (고도)<br>
+      Vworld 국립농업과학원 (배수등급·심토토성) · 국토부 (지형)
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
