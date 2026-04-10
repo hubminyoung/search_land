@@ -140,21 +140,20 @@ const VWORLD_KEY='EB3B88BE-D4B8-3026-9570-AE36A355ED86';
 const VWORLD_DOMAIN='hubminyoung.github.io';
 
 const map=L.map('map').setView([37.5665,126.9780],12);
-// Vworld 기본지도
-const baseLayer = L.tileLayer(
+const baseLayer=L.tileLayer(
   `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Base/{z}/{y}/{x}.png`,
   {attribution:'©국토지리정보원 Vworld',maxZoom:19,minZoom:6}
 ).addTo(map);
-
-// 위성영상
-const satLayer = L.tileLayer(
+const satLayer=L.tileLayer(
   `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Satellite/{z}/{y}/{x}.jpeg`,
   {attribution:'©국토지리정보원 Vworld',maxZoom:19,minZoom:6}
 );
-
-// 지도 전환 컨트롤
 L.control.layers({'기본지도':baseLayer,'위성영상':satLayer},{},{position:'topright'}).addTo(map);
-const markerIcon=L.divIcon({html:`<div style="width:14px;height:14px;background:#4a7a3a;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 3px rgba(74,122,58,.3);"></div>`,iconSize:[14,14],iconAnchor:[7,7],className:''});
+
+const markerIcon=L.divIcon({
+  html:`<div style="width:14px;height:14px;background:#4a7a3a;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 3px rgba(74,122,58,.3);"></div>`,
+  iconSize:[14,14],iconAnchor:[7,7],className:''
+});
 let marker=null,selLat=null,selLng=null;
 map.on('click',e=>setLocation(e.latlng.lat,e.latlng.lng));
 
@@ -175,8 +174,10 @@ async function searchAddr(){
   try{
     const res=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=3&accept-language=ko&countrycodes=kr`);
     const data=await res.json();
-    if(data.length>0){const lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);map.setView([lat,lng],16);setLocation(lat,lng);}
-    else{
+    if(data.length>0){
+      const lat=parseFloat(data[0].lat),lng=parseFloat(data[0].lon);
+      map.setView([lat,lng],16);setLocation(lat,lng);
+    }else{
       const res2=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q+' 한국')}&format=json&limit=1`);
       const data2=await res2.json();
       if(data2.length>0){const lat=parseFloat(data2[0].lat),lng=parseFloat(data2[0].lon);map.setView([lat,lng],16);setLocation(lat,lng);}
@@ -192,29 +193,76 @@ function setProgress(pct,text){
   document.getElementById('progressText').textContent=text;
 }
 
+// ─── Open-Meteo 기상 ───────────────────────────────────────────────
 async function fetchMeteo(lat,lng){
   const res=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=sunshine_duration,precipitation_sum,temperature_2m_max,temperature_2m_min,et0_fao_evapotranspiration&timezone=Asia%2FSeoul&past_days=30&forecast_days=7`);
   const d=await res.json();const s=d.daily;
   const avg=arr=>arr&&arr.length?(arr.reduce((a,b)=>a+(b||0),0)/arr.length):null;
-  return{sunshine:avg(s.sunshine_duration)?(avg(s.sunshine_duration)/3600).toFixed(1):null,precip:avg(s.precipitation_sum)?avg(s.precipitation_sum).toFixed(1):null,tempMax:avg(s.temperature_2m_max)?avg(s.temperature_2m_max).toFixed(1):null,tempMin:avg(s.temperature_2m_min)?avg(s.temperature_2m_min).toFixed(1):null,et0:avg(s.et0_fao_evapotranspiration)?avg(s.et0_fao_evapotranspiration).toFixed(1):null};
+  return{
+    sunshine:avg(s.sunshine_duration)?(avg(s.sunshine_duration)/3600).toFixed(1):null,
+    precip:avg(s.precipitation_sum)?avg(s.precipitation_sum).toFixed(1):null,
+    tempMax:avg(s.temperature_2m_max)?avg(s.temperature_2m_max).toFixed(1):null,
+    tempMin:avg(s.temperature_2m_min)?avg(s.temperature_2m_min).toFixed(1):null,
+    et0:avg(s.et0_fao_evapotranspiration)?avg(s.et0_fao_evapotranspiration).toFixed(1):null
+  };
 }
 
+// ─── 고도: Open-Meteo elevation (안정적) + open-elevation 폴백 ────
 async function fetchElevation(lat,lng){
-  try{const res=await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);const d=await res.json();return{elev:d.results[0].elevation};}
-  catch(e){return{elev:null};}
-}
-
-async function fetchVworld(lat,lng,data){
+  // 1차: Open-Meteo elevation API (안정적, CORS 없음)
   try{
-    const geom=`POINT(${lng} ${lat})`;
-    const url=`https://api.vworld.kr/req/data?service=data&request=GetFeature&data=${data}&key=${VWORLD_KEY}&domain=${VWORLD_DOMAIN}&geomFilter=${encodeURIComponent(geom)}&buffer=100&size=1&format=json&geometry=false&attribute=true&crs=EPSG:4326`;
-    const res=await fetch(url);const d=await res.json();
-    if(d.response?.status==='OK'&&d.response?.result?.featureCollection?.features?.length>0)
-      return d.response.result.featureCollection.features[0].properties;
-    return null;
-  }catch(e){return null;}
+    const res=await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lng}`);
+    const d=await res.json();
+    if(d.elevation&&d.elevation.length>0)return{elev:Math.round(d.elevation[0])};
+  }catch(e){}
+  // 2차: open-elevation 폴백
+  try{
+    const res=await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+    const d=await res.json();
+    return{elev:d.results[0].elevation};
+  }catch(e){}
+  return{elev:null};
 }
 
+// ─── Vworld 데이터 API — JSONP 방식 (CORS 우회) ───────────────────
+function fetchVworld(lat,lng,data){
+  return new Promise((resolve)=>{
+    const cbName='_vwcb_'+Date.now()+'_'+Math.floor(Math.random()*9999);
+    const geom=`POINT(${lng} ${lat})`;
+    const url=`https://api.vworld.kr/req/data?service=data&request=GetFeature`
+      +`&data=${data}&key=${VWORLD_KEY}&domain=${VWORLD_DOMAIN}`
+      +`&geomFilter=${encodeURIComponent(geom)}&buffer=100&size=1`
+      +`&format=json&geometry=false&attribute=true&crs=EPSG:4326`
+      +`&callback=${cbName}`;
+
+    let done=false;
+    const cleanup=()=>{
+      done=true;
+      delete window[cbName];
+      if(script.parentNode)script.parentNode.removeChild(script);
+    };
+
+    window[cbName]=(d)=>{
+      if(done)return;
+      cleanup();
+      try{
+        if(d.response?.status==='OK'&&d.response?.result?.featureCollection?.features?.length>0)
+          resolve(d.response.result.featureCollection.features[0].properties);
+        else resolve(null);
+      }catch(e){resolve(null);}
+    };
+
+    const script=document.createElement('script');
+    script.src=url;
+    script.onerror=()=>{if(!done){cleanup();resolve(null);}};
+    document.body.appendChild(script);
+
+    // 8초 타임아웃
+    setTimeout(()=>{if(!done){cleanup();resolve(null);}},8000);
+  });
+}
+
+// ─── 토지피복 코드 → 표시 정보 ──────────────────────────────────
 function lcInfo(code,label){
   if(!code&&!label)return{cls:'lc-unknown',text:'데이터 없음',hansen:'—',risk:null};
   const l=(label||'').toLowerCase();const c=String(code||'');
@@ -235,6 +283,7 @@ function lcInfo(code,label){
   return{cls:'lc-unknown',text:label||code||'미분류',hansen:'—',risk:null};
 }
 
+// ─── 입지 분류 ────────────────────────────────────────────────────
 function classify(meteo,elev,drain,soil,lc){
   let sA=0,sB=0,sC=0;
   const sun=parseFloat(meteo.sunshine);
@@ -252,6 +301,7 @@ function classify(meteo,elev,drain,soil,lc){
   return{type};
 }
 
+// ─── 타입 정의 ────────────────────────────────────────────────────
 const TD={
   A:{name:'A 타입 — 안전형',desc:'양지·건조·배수양호 / 도시화단',
     risks:['여름 건조 스트레스','초기 활착 주의'],
@@ -273,6 +323,7 @@ const TD={
     verdict:'배수 개선 없이 설계 시 2년 내 구조 붕괴 위험.',score:52}
 };
 
+// ─── 메인 분석 ────────────────────────────────────────────────────
 async function runAnalysis(){
   if(!selLat)return;
   const btn=document.getElementById('analyzeBtn');
@@ -284,10 +335,10 @@ async function runAnalysis(){
   setProgress(10,'기상 데이터 (Open-Meteo)...');
   let meteo={};try{meteo=await fetchMeteo(selLat,selLng);}catch(e){}
 
-  setProgress(28,'고도 데이터 (SRTM)...');
+  setProgress(28,'고도 데이터 (Open-Meteo Elevation)...');
   let elev={};try{elev=await fetchElevation(selLat,selLng);}catch(e){}
 
-  setProgress(46,'토지피복도 (Vworld/환경부)...');
+  setProgress(46,'토지피복도 (Vworld / 환경부)...');
   let lc=null;try{lc=await fetchVworld(selLat,selLng,'LT_C_LNLC');}catch(e){}
 
   setProgress(64,'배수등급 (국립농업과학원)...');
@@ -313,13 +364,13 @@ async function runAnalysis(){
   setProgress(100,'완료');
   setTimeout(()=>{
     document.getElementById('progressWrap').style.display='none';
-    // Data cards
+
     document.getElementById('dataSection').style.display='block';
     const e=elev.elev;
     document.getElementById('dataGrid').innerHTML=[
-      {l:'일조시간',v:meteo.sunshine||'—',u:'hr/day',s:sun>6?'양지':sun>3?'반그늘':'그늘',src:'Open-Meteo'},
-      {l:'일평균강수',v:meteo.precip||'—',u:'mm/day',s:precip<1.5?'건조':precip<3.5?'적습':'습윤',src:'Open-Meteo'},
-      {l:'고도',v:e!=null?e:'—',u:'m',s:e!=null?(e<5?'저지대':e<20?'평지':'고지'):'—',src:'SRTM'},
+      {l:'일조시간',v:meteo.sunshine||'—',u:'hr/day',s:isNaN(sun)?'—':sun>6?'양지':sun>3?'반그늘':'그늘',src:'Open-Meteo'},
+      {l:'일평균강수',v:meteo.precip||'—',u:'mm/day',s:isNaN(precip)?'—':precip<1.5?'건조':precip<3.5?'적습':'습윤',src:'Open-Meteo'},
+      {l:'고도',v:e!=null?e:'—',u:'m',s:e!=null?(e<5?'저지대':e<20?'평지':'고지'):'—',src:'Open-Meteo Elev'},
       {l:'토지피복',v:`<span class="lc-badge ${lcI.cls}">${lcI.text}</span>`,u:'',s:'',src:'환경부'},
       {l:'배수등급',v:drLabel,u:'',s:drain?.code_dc?`code ${drain.code_dc}`:'',src:'국립농업과학원'},
       {l:'심토토성',v:slLabel,u:'',s:soil?.code_st?`code ${soil.code_st}`:'',src:'국립농업과학원'},
@@ -327,7 +378,6 @@ async function runAnalysis(){
       {l:'최저기온',v:meteo.tempMin||'—',u:'°C',s:'30일 평균',src:'Open-Meteo'},
     ].map(i=>`<div class="dc"><div class="dc-label">${i.l}</div><div class="dc-value">${i.v}<span class="dc-unit">${i.u}</span></div>${i.s?`<div class="dc-sub">${i.s}</div>`:''}<span class="src-tag">${i.src}</span></div>`).join('');
 
-    // Result
     const t=cls.type,td=TD[t];
     const color=t==='A'?'var(--A)':t==='B'?'var(--B)':'var(--C)';
     const lcRisk=lcI.risk?`<div class="iblock"><div class="iblock-label">토지피복 주의</div><div class="tags"><span class="tag tag-risk">${lcI.risk}</span></div></div>`:'';
@@ -349,7 +399,7 @@ async function runAnalysis(){
       <div class="iblock"><div class="iblock-label">관리 전략</div><div class="tags">${td.manage.map(m=>`<span class="tag tag-manage">${m}</span>`).join('')}</div></div>
       <div class="iblock"><div class="iblock-label">추천 식물 (한국 자생종)</div><div class="plant-list">${td.plants.map(p=>`<div class="plant-item"><span class="pname">${p.n}</span><span class="pcode">${p.c}</span></div>`).join('')}</div></div>
       <div class="iblock"><div class="iblock-label">종합 판단</div><div class="verdict">${td.verdict}</div></div>
-      <div class="data-note">출처: Open-Meteo · SRTM · Vworld (환경부 토지피복도 · 국립농업과학원 배수등급·심토토성)</div>
+      <div class="data-note">출처: Open-Meteo · Vworld (환경부 토지피복도 · 국립농업과학원 배수등급·심토토성)</div>
     `;
     btn.disabled=false;btn.textContent='재분석';
   },300);
