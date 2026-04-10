@@ -140,7 +140,20 @@ const VWORLD_KEY='EB3B88BE-D4B8-3026-9570-AE36A355ED86';
 const VWORLD_DOMAIN='hubminyoung.github.io';
 
 const map=L.map('map').setView([37.5665,126.9780],12);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'©OpenStreetMap ©CARTO',maxZoom:19}).addTo(map);
+// Vworld 기본지도
+const baseLayer = L.tileLayer(
+  `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Base/{z}/{y}/{x}.png`,
+  {attribution:'©국토지리정보원 Vworld',maxZoom:19,minZoom:6}
+).addTo(map);
+
+// 위성영상
+const satLayer = L.tileLayer(
+  `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/Satellite/{z}/{y}/{x}.jpeg`,
+  {attribution:'©국토지리정보원 Vworld',maxZoom:19,minZoom:6}
+);
+
+// 지도 전환 컨트롤
+L.control.layers({'기본지도':baseLayer,'위성영상':satLayer},{},{position:'topright'}).addTo(map);
 const markerIcon=L.divIcon({html:`<div style="width:14px;height:14px;background:#4a7a3a;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 3px rgba(74,122,58,.3);"></div>`,iconSize:[14,14],iconAnchor:[7,7],className:''});
 let marker=null,selLat=null,selLng=null;
 map.on('click',e=>setLocation(e.latlng.lat,e.latlng.lng));
